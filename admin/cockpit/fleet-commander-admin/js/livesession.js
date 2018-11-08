@@ -258,8 +258,8 @@ $(document).ready (function () {
     fc.GetInitialValues(function(resp) {
       setDebugLevel(resp.debugLevel);
 
-      // Try FreeIPA connection
-      fc.DoIPAConnection(function(resp) {
+      // Try domain connection
+      fc.DoDomainConnection(function(resp) {
           if (resp.status) {
             $('#main-container').show();
             startLiveSession();

@@ -209,8 +209,8 @@ function refreshProfileList(cb) {
      $.each (data, function (i, val) {
        var tr = $('<tr ></tr>');
        // $('<td></td>', { text: val.displayName }).appendTo(tr);
-       $('<td></td>', { text: val[0] }).appendTo(tr);
        $('<td></td>', { text: val[1] }).appendTo(tr);
+       $('<td></td>', { text: val[2] }).appendTo(tr);
 
        var actions_col = $('<td></td>');
        actions_col.appendTo(tr);
@@ -226,7 +226,7 @@ function refreshProfileList(cb) {
          .appendTo(actions_container);
 
        $('<button></button>', {"class": "btn btn-danger", text: _('Delete')})
-         .click(function () { removeProfile (uid, val.displayName); })
+         .click(function () { removeProfile (uid, val[1]); })
          .appendTo(actions_container);
 
        tr.appendTo('#profile-list');
@@ -295,6 +295,7 @@ function saveProfile() {
   }
 
   var data = {
+    'cn': currentuid,
     'name': $('#profile-name').val(),
     'description': $('#profile-desc').val(),
     'priority': $('#profile-priority').val(),
@@ -492,8 +493,8 @@ $(document).ready (function () {
 
       setDebugLevel(resp.debugLevel);
 
-      // Try FreeIPA connection
-      fc.DoIPAConnection(function(resp) {
+      // Try domain connection
+      fc.DoDomainConnection(function(resp) {
           if (resp.status) {
             checkHypervisorConfig();
             initialize_goa();
@@ -506,8 +507,8 @@ $(document).ready (function () {
             $('#main-container').hide()
             console.log(resp.error);
             showCurtain(
-              _('Error connecting to IPA server. Check system logs for details'),
-              _('Error connecting to IPA server'),
+              _('Error connecting to domain server. Check system logs for details'),
+              _('Error connecting to domain server'),
               null,
               {
                 'dbus-retry': {
