@@ -39,6 +39,20 @@ import smbc
 GPO_SMB_PATH = '\\\\%s\\SysVol\\%s\\Policies\\%s'
 SMB_DIRECTORY_PATH = 'smb://%s/SysVol/%s/Policies/%s'
 
+# TODO: FC_PROFILE_PREFIX = '__FC_PROFILE__'
+
+FC_GLOBAL_POLICY_PROFILE_NAME = '__FC_GLOBAL_POLICY__DO_NOT_MODIFY'
+FC_GLOBAL_POLICY_DEFAULT = 1
+FC_GLOBAL_POLICY_PROFILE = {
+    'name': FC_GLOBAL_POLICY_PROFILE_NAME,
+    'description': 'Fleet Commander global settings profile. DO NOT MODIFY',
+    'priority': 50,
+    'settings': {
+        'org.freedesktop.FleetCommander': {
+            'global_policy': FC_GLOBAL_POLICY_DEFAULT,
+        },
+    },
+}
 
 def connection_required(f):
     @wraps(f)
@@ -121,7 +135,11 @@ class ADConnector(object):
         furi = '%s/fleet-commander.json' % duri
         logging.debug('Saving fleet commander settings in file %s' % furi)
         file = ctx.open(furi, os.O_CREAT | os.O_WRONLY)
-        file.write(json.dumps(profile['settings']))
+        file.write(
+            json.dumps({
+                'priority': profile['priority'],
+                'settings': profile['settings'],
+            }))
         file.close()
         logging.debug('Fleet commander settings saved in %s' % furi)
 
@@ -145,6 +163,30 @@ class ADConnector(object):
         resultlist = self.connection.search_s(base_dn, ldap.SCOPE_SUBTREE, filter, attrs)
         return len(resultlist) > 0
 
+    def _get_ldap_profile_data(self, filter):
+        base_dn = "CN=Policies,CN=System,%s" % self._get_domain_dn()
+        attrs = ['cn', 'displayName', 'description', 'nTSecurityDescriptor']
+        resultlist = self.connection.search_s(base_dn, ldap.SCOPE_SUBTREE, filter, attrs)
+        if len(resultlist) > 0:
+            return resultlist[0][1]
+        return None
+
+    def _data_to_profile(self, data):
+        cn = data['cn'][0]
+        name = data.get('displayName', (cn, ))[0]
+        desc = data.get('description', ('', ))[0]
+        # TODO: Load security descriptor, parse it and get users and other data.
+        #sd = resdata.get('nTSecurityDescriptor', (None, ))[0]
+        smb_data = self._load_smb_data(cn)
+        profile = {
+            'cn': cn,
+            'name': name,
+            'description': desc,
+            'priority': smb_data['priority'],
+            'settings': smb_data['settings'],
+        }
+        return profile
+
     def connect(self, sanity_check=True):
         """
         Connect to AD server
@@ -164,16 +206,24 @@ class ADConnector(object):
 
     @connection_required
     def get_global_policy(self):
-        pass
+        ldap_filter = '(displayName=%s)' % FC_GLOBAL_POLICY_PROFILE_NAME
+        data = self._get_ldap_profile_data(ldap_filter)
+        if data:
+            profile = self._data_to_profile(data)
+            return profile['settings']['org.freedesktop.FleetCommander']['global_policy']
+        else:
+            return FC_GLOBAL_POLICY_DEFAULT
 
     @connection_required
     def set_global_policy(self, policy):
-        pass
+        profile = FC_GLOBAL_POLICY_PROFILE.copy()
+        profile['settings']['org.freedesktop.FleetCommander']['global_policy'] = policy
+        self.save_profile(profile)
 
     @connection_required
     def save_profile(self, profile):
         # Check if profile exists
-        cn = profile['cn']
+        cn = profile.get('cn', None)
         # Check if profile exists
         old_profile = None
         if cn is not None:
@@ -254,7 +304,6 @@ class ADConnector(object):
         for res in resultlist:
             resdata = res[1]
             if resdata:
-                print(resdata)
                 cn = resdata['cn'][0]
                 name = resdata.get('displayName', (cn,))[0]
                 desc = resdata.get('description', ('',))[0]
@@ -264,29 +313,11 @@ class ADConnector(object):
         return profiles
 
     @connection_required
-    def get_profile(self, name):
-        profile = None
-        base_dn = "CN=Policies,CN=System,%s" % self._get_domain_dn()
-        filter = '(CN=%s)' % name
-        attrs = ['cn', 'displayName', 'description', 'nTSecurityDescriptor']
-        resultlist = self.connection.search_s(base_dn, ldap.SCOPE_SUBTREE, filter, attrs)
-        if len(resultlist) > 0:
-            resdata = resultlist[0][1]
-            if resdata:
-                cn = resdata['cn'][0]
-                name = resdata.get('displayName', (cn, ))[0]
-                desc = resdata.get('description', ('', ))[0]
-                # TODO: Load security descriptor, parse it and get users and other data.
-                #sd = resdata.get('nTSecurityDescriptor', (None, ))[0]
-                settings = self._load_smb_data(cn)
-                # TODO: Get priority from settings?
-                profile = {
-                    'cn': cn,
-                    'name': name,
-                    'description': desc,
-                    'settings': settings
-                }
-        return profile
+    def get_profile(self, cn):
+        ldap_filter = '(CN=%s)' % cn
+        data = self._get_ldap_profile_data(ldap_filter)
+        if data:
+            return self._data_to_profile(data)
 
 
     @connection_required
