@@ -56,7 +56,7 @@ FC_GLOBAL_POLICY_PROFILE = {
     },
 }
 
-DEFAULT_GPO_SECURITY_DESCRIPTOR = 'O:%sG:%sD:S:'
+DEFAULT_GPO_SECURITY_DESCRIPTOR = 'O:%sG:%sD:P'
 GPO_DACL_ACE = '(OA;CI;CR;edacfd8f-ffb3-11d1-b41d-00a0c968f939;;%s)'
 
 def connection_required(f):
@@ -259,8 +259,12 @@ class ADConnector(object):
         # Check if profile exists
         old_profile = None
         if cn is not None:
-            old_profile = self.get_profile(cn)
-            
+            ldap_filter = '(CN=%s)' % cn
+            old_profile_data = self._get_ldap_profile_data(ldap_filter)
+            if old_profile_data:
+                old_profile = self._data_to_profile(old_profile_data)
+
+
         if old_profile is not None:
             logging.debug('Profile with cn %s already exists. Modifying' % cn)
             logging.debug('Old profile: %s' % old_profile)
@@ -271,15 +275,15 @@ class ADConnector(object):
             old_attrs = {
                 'displayName': old_profile['name'],
                 'description': FC_PROFILE_PREFIX % old_profile['description'],
-                'nTSecurityDescriptor': old_profile['nTSecurityDescriptor'],
+                'nTSecurityDescriptor': old_profile_data['nTSecurityDescriptor'],
             }
 
             new_attrs = {
                 'displayName': FC_PROFILE_PREFIX % profile['name'].encode(),
                 'description': profile['description'].encode(),
-                'nTSecurityDescriptor': self._security_descriptor_from_profile(profile)
+                'nTSecurityDescriptor': self._security_descriptor_from_profile(profile),
             }
-
+            # TODO: Error saving profile {3DD38AED-068A-4195-ACC3-3E1BD9DBACFD}: (Prueba) {'info': '00002077: SvcErr: DSID-030F06FF, problem 5003 (WILL_NOT_PERFORM), data 87\n', 'desc': 'Server is unwilling to perform'}
             ldif = ldap.modlist.modifyModlist(old_attrs, new_attrs)
             if not ldif:
                 logging.debug('LDIF data is empty. No LDAP modifications needed')
@@ -440,7 +444,9 @@ class SecurityDescriptorHelper(object):
 
     def __init__(self, sd, connector):
         self.connector = connector
+        self.dacl_flags = ''
         self.dacls = []
+        self.sacl_flags = ''
         self.sacls = []
         if isinstance(sd, security.descriptor):
             # Get the SDDL and parse
@@ -536,15 +542,10 @@ class SecurityDescriptorHelper(object):
 
     def to_ldap_sd(self):
         logging.debug('Generating security descriptor')
-        sd = security.descriptor()
         sddl = self.to_sddl()
-        print(sddl)
         logging.debug('SDDL for security descriptor generation: %s' % sddl)
         domain_sid = self.connector.get_domain_sid()
-        sd.from_sddl(sddl, domain_sid)
-        for ace in sd.dacl:
-            print("ACE %s" % ace)
-        print(dir(sd))
+        sd = security.descriptor.from_sddl(sddl, domain_sid)
         print(sd.as_sddl())
         return ndr_pack(sd)
 
@@ -624,6 +625,7 @@ if __name__ == '__main__':
     # pp.pprint(group)
 
     # Save new profile
+    test_profile['cn'] = '{3DD38AED-068A-4195-ACC3-3E1BD9DBACFD}'
     gpo_uuid = connector.save_profile(test_profile)
     #test_profile['cn'] = gpo_uuid
     #print('UUID: %s' % gpo_uuid)
